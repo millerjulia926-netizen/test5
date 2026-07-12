@@ -74,6 +74,41 @@ Copy `.env.example` and adjust values for your target environment:
 - **staging** — set `NODE_ENV=staging` and staging database credentials
 - **production** — set `NODE_ENV=production`, `DATABASE_URL`, and `SESSION_SECRET`
 
+## Production deployment
+
+The production image bundles the API and the built React client. On startup the server applies database migrations, serves API routes, and falls back to the SPA for browser navigation.
+
+### Docker
+
+```bash
+docker compose up --build
+```
+
+Open http://localhost:3000 after Postgres becomes healthy. Override `SESSION_SECRET` in `docker-compose.yml` before any real deployment.
+
+### Render
+
+`render.yaml` defines a web service and managed Postgres database. Connect the repository in Render and deploy the blueprint.
+
+### GitHub Actions
+
+- `ci.yml` — lint, format, typecheck, build, and tests on pull requests
+- `deploy.yml` — builds and publishes a container image to GHCR on version tags, then runs a production smoke test against signup and `/health`
+
+Publish a release tag to trigger deployment artifacts:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+### Manual production start
+
+```bash
+npm run build
+NODE_ENV=production DATABASE_URL=... SESSION_SECRET=... npm run start:production
+```
+
 ## CI
 
 GitHub Actions runs lint, format check, typecheck, build, and tests on every push and pull request to `main`.
