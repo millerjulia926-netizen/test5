@@ -1,11 +1,19 @@
 import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 
 export function LoginPage() {
   const { login, signup } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const redirectTo =
+    typeof location.state === "object" &&
+    location.state &&
+    "from" in location.state &&
+    typeof location.state.from === "string"
+      ? location.state.from
+      : "/notes";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSignup, setIsSignup] = useState(false);
@@ -23,7 +31,7 @@ export function LoginPage() {
       } else {
         await login(email, password);
       }
-      navigate("/notes");
+      navigate(redirectTo);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Authentication failed");
     } finally {

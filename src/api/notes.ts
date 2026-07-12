@@ -2,8 +2,9 @@ import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { Router } from "express";
 
 import { type AuthenticatedRequest, requireSession } from "../auth/middleware.js";
+import { folderBelongsToUser, getNoteForUser } from "../auth/authorization.js";
 import type { Database } from "../db/client.js";
-import { folders, noteVersions, notes } from "../db/schema.js";
+import { noteVersions, notes } from "../db/schema.js";
 import {
   applyVoiceCaptureRules,
   resolvePendingSyncOnUpdate,
@@ -13,19 +14,6 @@ import { validateCreateNoteInput, validateUpdateNoteInput } from "../notes/valid
 
 function parseNoteId(rawId: string | string[]): string | null {
   return typeof rawId === "string" ? rawId : null;
-}
-
-async function folderBelongsToUser(
-  db: Database,
-  userId: string,
-  folderId: string,
-): Promise<boolean> {
-  const [folder] = await db
-    .select({ id: folders.id })
-    .from(folders)
-    .where(and(eq(folders.id, folderId), eq(folders.userId, userId)));
-
-  return Boolean(folder);
 }
 
 export function createNotesRouter(db: Database) {
@@ -100,10 +88,7 @@ export function createNotesRouter(db: Database) {
       return;
     }
 
-    const [note] = await db
-      .select()
-      .from(notes)
-      .where(and(eq(notes.id, noteId), eq(notes.userId, req.userId!)));
+    const note = await getNoteForUser(db, noteId, req.userId!);
 
     if (!note) {
       res.status(404).json({ error: "Note not found" });
@@ -131,10 +116,7 @@ export function createNotesRouter(db: Database) {
       updatedAt: new Date(),
     };
 
-    const [existingNote] = await db
-      .select()
-      .from(notes)
-      .where(and(eq(notes.id, noteId), eq(notes.userId, req.userId!)));
+    const existingNote = await getNoteForUser(db, noteId, req.userId!);
 
     if (!existingNote) {
       res.status(404).json({ error: "Note not found" });

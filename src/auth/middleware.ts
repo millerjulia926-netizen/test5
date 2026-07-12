@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 
 import { verifyAccessToken } from "./jwt.js";
-import { getSessionUserId } from "./service.js";
+import { getSessionUserId, touchSession } from "./service.js";
 import type { Database } from "../db/client.js";
 
 export type AuthenticatedRequest = Request & {
@@ -30,6 +30,7 @@ export function requireSession(db: Database) {
 
       req.userId = userId;
       req.sessionId = payload.sessionId;
+      await touchSession(db, payload.sessionId);
       next();
     } catch {
       res.status(401).json({ error: "Invalid or expired access token" });

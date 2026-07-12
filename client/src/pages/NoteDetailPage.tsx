@@ -14,7 +14,7 @@ function formatDate(value: string): string {
 export function NoteDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated, isRestoring, logout } = useAuth();
+  const { logout } = useAuth();
   const [note, setNote] = useState<Awaited<ReturnType<typeof fetchNote>> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,13 +22,7 @@ export function NoteDetailPage() {
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isRestoring && !isAuthenticated) {
-      navigate("/login");
-    }
-  }, [isAuthenticated, isRestoring, navigate]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !id) {
+    if (!id) {
       return;
     }
 
@@ -71,7 +65,7 @@ export function NoteDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, isAuthenticated, logout, navigate]);
+  }, [id, logout, navigate]);
 
   async function mutateNote(input: Parameters<typeof updateNote>[1]) {
     if (!note) {
