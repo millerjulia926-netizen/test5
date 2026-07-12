@@ -13,14 +13,22 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts"
   },
   "engines": {
     "node": ">=20"
   },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.22.0"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.1",
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^10.7.0",
     "prettier": "^3.9.5",
     "tsx": "^4.23.0",

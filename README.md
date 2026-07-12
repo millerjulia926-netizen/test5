@@ -16,16 +16,29 @@ npm install
 
 ## Scripts
 
-| Script                 | Description                       |
-| ---------------------- | --------------------------------- |
-| `npm run dev`          | Start the server in watch mode    |
-| `npm run build`        | Compile TypeScript to `dist/`     |
-| `npm start`            | Run the compiled server           |
-| `npm run lint`         | Run ESLint                        |
-| `npm run format`       | Format files with Prettier        |
-| `npm run format:check` | Check formatting without writing  |
-| `npm run typecheck`    | Type-check without emitting files |
-| `npm test`             | Run Vitest smoke tests            |
+| Script                 | Description                         |
+| ---------------------- | ----------------------------------- |
+| `npm run dev`          | Start the server in watch mode      |
+| `npm run build`        | Compile TypeScript to `dist/`       |
+| `npm start`            | Run the compiled server             |
+| `npm run lint`         | Run ESLint                          |
+| `npm run format`       | Format files with Prettier          |
+| `npm run format:check` | Check formatting without writing    |
+| `npm run typecheck`    | Type-check without emitting files   |
+| `npm test`             | Run Vitest tests                    |
+| `npm run db:generate`  | Generate SQL migrations from schema |
+| `npm run db:migrate`   | Apply migrations to the database    |
+
+## Database
+
+The schema is defined in `src/db/schema.ts` using Drizzle ORM. Tables cover users, sessions, folders, notes (with offline sync and voice-capture fields), tags, note shares, and note versions for conflict preservation.
+
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
+Set `TEST_DATABASE_URL` (or `DATABASE_URL`) to a PostgreSQL instance before running schema tests locally.
 
 ## Environment
 
