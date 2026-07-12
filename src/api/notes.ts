@@ -4,6 +4,12 @@ import { Router } from "express";
 import { type AuthenticatedRequest, requireSession } from "../auth/middleware.js";
 import type { Database } from "../db/client.js";
 import { folders, noteVersions, notes } from "../db/schema.js";
+import {
+  applyVoiceCaptureRules,
+  resolvePendingSyncOnUpdate,
+  validatePinArchiveRule,
+} from "../notes/rules.js";
+import { validateCreateNoteInput, validateUpdateNoteInput } from "../notes/validation.js";
 
 function parseNoteId(rawId: string | string[]): string | null {
   return typeof rawId === "string" ? rawId : null;
@@ -20,18 +26,6 @@ async function folderBelongsToUser(
     .where(and(eq(folders.id, folderId), eq(folders.userId, userId)));
 
   return Boolean(folder);
-}
-
-function parseCaptureSource(value: unknown): string | null | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value === "typed" || value === "voice") {
-    return value;
-  }
-
-  return null;
 }
 
 export function createNotesRouter(db: Database) {
@@ -59,66 +53,40 @@ export function createNotesRouter(db: Database) {
   });
 
   router.post("/", async (req: AuthenticatedRequest, res) => {
-    const {
-      title,
-      content,
-      folderId,
-      pendingSync,
-      captureSource,
-      needsReview,
-      transcriptionConfidence,
-    } = req.body ?? {};
-    const parsedCaptureSource = parseCaptureSource(captureSource);
-
-    if (!title || typeof title !== "string" || !title.trim()) {
-      res.status(400).json({ error: "Title is required" });
+    const validation = validateCreateNoteInput(req.body);
+    if ("error" in validation) {
+      res.status(400).json({ error: validation.error });
       return;
     }
 
-    if (parsedCaptureSource === null) {
-      res.status(400).json({ error: "captureSource must be 'typed' or 'voice'" });
-      return;
-    }
+    const { input } = validation;
 
-    if (needsReview !== undefined && typeof needsReview !== "boolean") {
-      res.status(400).json({ error: "needsReview must be a boolean" });
-      return;
-    }
-
-    if (pendingSync !== undefined && typeof pendingSync !== "boolean") {
-      res.status(400).json({ error: "pendingSync must be a boolean" });
-      return;
-    }
-
-    if (transcriptionConfidence !== undefined && typeof transcriptionConfidence !== "number") {
-      res.status(400).json({ error: "transcriptionConfidence must be a number" });
-      return;
-    }
-
-    if (folderId !== undefined && folderId !== null) {
-      if (typeof folderId !== "string") {
-        res.status(400).json({ error: "folderId must be a string or null" });
-        return;
-      }
-
-      if (!(await folderBelongsToUser(db, req.userId!, folderId))) {
+    if (input.folderId) {
+      if (!(await folderBelongsToUser(db, req.userId!, input.folderId))) {
         res.status(400).json({ error: "Folder not found" });
         return;
       }
     }
 
+    const captureSource = input.captureSource ?? "typed";
+    const transcriptionConfidence = input.transcriptionConfidence ?? null;
+    const voiceRules = applyVoiceCaptureRules({
+      captureSource,
+      transcriptionConfidence,
+      needsReview: input.needsReview,
+    });
+
     const [note] = await db
       .insert(notes)
       .values({
         userId: req.userId!,
-        title: title.trim(),
-        content: typeof content === "string" ? content : "",
-        folderId: folderId ?? null,
-        pendingSync: pendingSync ?? false,
-        captureSource: parsedCaptureSource ?? "typed",
-        needsReview: needsReview ?? false,
-        transcriptionConfidence:
-          typeof transcriptionConfidence === "number" ? transcriptionConfidence : null,
+        title: input.title,
+        content: input.content,
+        folderId: input.folderId ?? null,
+        pendingSync: input.pendingSync ?? false,
+        captureSource,
+        needsReview: voiceRules.needsReview,
+        transcriptionConfidence,
       })
       .returning();
 
@@ -152,20 +120,13 @@ export function createNotesRouter(db: Database) {
       return;
     }
 
-    const {
-      title,
-      content,
-      folderId,
-      isPinned,
-      archived,
-      pendingSync,
-      needsReview,
-      captureSource,
-      transcriptionConfidence,
-      expectedUpdatedAt,
-      deviceId,
-    } = req.body ?? {};
-    const parsedCaptureSource = parseCaptureSource(captureSource);
+    const validation = validateUpdateNoteInput(req.body);
+    if ("error" in validation) {
+      res.status(400).json({ error: validation.error });
+      return;
+    }
+
+    const { input } = validation;
     const updates: Partial<typeof notes.$inferInsert> = {
       updatedAt: new Date(),
     };
@@ -180,19 +141,14 @@ export function createNotesRouter(db: Database) {
       return;
     }
 
-    if (expectedUpdatedAt !== undefined) {
-      if (typeof expectedUpdatedAt !== "string") {
-        res.status(400).json({ error: "expectedUpdatedAt must be an ISO date string" });
-        return;
-      }
-
-      const expectedTime = new Date(expectedUpdatedAt).getTime();
+    if (input.expectedUpdatedAt !== undefined) {
+      const expectedTime = new Date(input.expectedUpdatedAt).getTime();
       if (Number.isNaN(expectedTime) || existingNote.updatedAt.getTime() !== expectedTime) {
         await db.insert(noteVersions).values({
           noteId: existingNote.id,
-          title: typeof title === "string" && title.trim() ? title.trim() : existingNote.title,
-          content: typeof content === "string" ? content : existingNote.content,
-          deviceId: typeof deviceId === "string" ? deviceId : null,
+          title: input.title ?? existingNote.title,
+          content: input.content ?? existingNote.content,
+          deviceId: input.deviceId ?? null,
         });
         await db.update(notes).set({ syncConflict: true }).where(eq(notes.id, noteId));
 
@@ -204,86 +160,70 @@ export function createNotesRouter(db: Database) {
       }
     }
 
-    if (parsedCaptureSource === null) {
-      res.status(400).json({ error: "captureSource must be 'typed' or 'voice'" });
+    const pinArchiveError = validatePinArchiveRule(existingNote, {
+      isPinned: input.isPinned,
+      archived: input.archived,
+    });
+    if (pinArchiveError) {
+      res.status(400).json({ error: pinArchiveError });
       return;
     }
 
-    if (title !== undefined) {
-      if (typeof title !== "string" || !title.trim()) {
-        res.status(400).json({ error: "Title must be a non-empty string" });
-        return;
-      }
-      updates.title = title.trim();
+    if (input.title !== undefined) {
+      updates.title = input.title;
     }
 
-    if (content !== undefined) {
-      if (typeof content !== "string") {
-        res.status(400).json({ error: "Content must be a string" });
-        return;
-      }
-      updates.content = content;
+    if (input.content !== undefined) {
+      updates.content = input.content;
     }
 
-    if (folderId !== undefined) {
-      if (folderId !== null && typeof folderId !== "string") {
-        res.status(400).json({ error: "folderId must be a string or null" });
-        return;
-      }
-
-      if (folderId !== null && !(await folderBelongsToUser(db, req.userId!, folderId))) {
+    if (input.folderId !== undefined) {
+      if (input.folderId !== null && !(await folderBelongsToUser(db, req.userId!, input.folderId))) {
         res.status(400).json({ error: "Folder not found" });
         return;
       }
 
-      updates.folderId = folderId;
+      updates.folderId = input.folderId;
     }
 
-    if (isPinned !== undefined) {
-      if (typeof isPinned !== "boolean") {
-        res.status(400).json({ error: "isPinned must be a boolean" });
-        return;
-      }
-      updates.isPinned = isPinned;
+    if (input.isPinned !== undefined) {
+      updates.isPinned = input.isPinned;
     }
 
-    if (archived !== undefined) {
-      if (typeof archived !== "boolean") {
-        res.status(400).json({ error: "archived must be a boolean" });
-        return;
-      }
-      updates.archivedAt = archived ? new Date() : null;
-      if (archived) {
+    if (input.archived !== undefined) {
+      updates.archivedAt = input.archived ? new Date() : null;
+      if (input.archived) {
         updates.isPinned = false;
       }
     }
 
-    if (pendingSync !== undefined) {
-      if (typeof pendingSync !== "boolean") {
-        res.status(400).json({ error: "pendingSync must be a boolean" });
-        return;
-      }
-      updates.pendingSync = pendingSync;
+    const resolvedPendingSync = resolvePendingSyncOnUpdate(existingNote, input.pendingSync);
+    if (resolvedPendingSync !== undefined) {
+      updates.pendingSync = resolvedPendingSync;
     }
 
-    if (needsReview !== undefined) {
-      if (typeof needsReview !== "boolean") {
-        res.status(400).json({ error: "needsReview must be a boolean" });
-        return;
-      }
-      updates.needsReview = needsReview;
+    const nextCaptureSource = input.captureSource ?? existingNote.captureSource;
+    const nextConfidence =
+      input.transcriptionConfidence !== undefined
+        ? input.transcriptionConfidence
+        : existingNote.transcriptionConfidence;
+
+    if (input.captureSource !== undefined) {
+      updates.captureSource = input.captureSource;
     }
 
-    if (parsedCaptureSource !== undefined) {
-      updates.captureSource = parsedCaptureSource;
+    if (input.transcriptionConfidence !== undefined) {
+      updates.transcriptionConfidence = input.transcriptionConfidence;
     }
 
-    if (transcriptionConfidence !== undefined) {
-      if (typeof transcriptionConfidence !== "number") {
-        res.status(400).json({ error: "transcriptionConfidence must be a number" });
-        return;
-      }
-      updates.transcriptionConfidence = transcriptionConfidence;
+    const voiceRules = applyVoiceCaptureRules({
+      captureSource: nextCaptureSource as "typed" | "voice",
+      transcriptionConfidence: nextConfidence,
+      needsReview: input.needsReview ?? existingNote.needsReview,
+    });
+
+    if (input.needsReview !== undefined || input.captureSource !== undefined || input.transcriptionConfidence !== undefined) {
+      updates.needsReview = voiceRules.needsReview;
     }
 
     if (Object.keys(updates).length === 1) {

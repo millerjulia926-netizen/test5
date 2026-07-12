@@ -1,19 +1,24 @@
 import { useMemo, useState, type FormEvent } from "react";
 
+import {
+  applyVoiceCaptureRules,
+  simulateVoiceCapture,
+  validateNoteForm,
+  type NoteFormValues,
+} from "../lib/validation";
 import { MarkdownContent } from "./MarkdownContent";
 
 export type NoteEditorMode = "create" | "edit";
 export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error" | "conflict";
 
-export type NoteEditorValues = {
-  title: string;
-  content: string;
-};
+export type NoteEditorValues = NoteFormValues;
 
 export type NoteEditorProps = {
   mode: NoteEditorMode;
   initialTitle?: string;
   initialContent?: string;
+  initialCaptureSource?: "typed" | "voice";
+  initialNeedsReview?: boolean;
   saveStatus?: SaveStatus;
   onChange?: (values: NoteEditorValues) => void;
   onSave?: (values: NoteEditorValues) => void | Promise<void>;
@@ -43,6 +48,8 @@ export function NoteEditor({
   mode,
   initialTitle = "",
   initialContent = "",
+  initialCaptureSource = "typed",
+  initialNeedsReview = false,
   saveStatus = "idle",
   onChange,
   onSave,
@@ -50,17 +57,54 @@ export function NoteEditor({
 }: NoteEditorProps) {
   const [title, setTitle] = useState(initialTitle);
   const [content, setContent] = useState(initialContent);
+  const [captureSource, setCaptureSource] = useState<"typed" | "voice">(initialCaptureSource);
+  const [needsReview, setNeedsReview] = useState(initialNeedsReview);
+  const [transcriptionConfidence, setTranscriptionConfidence] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isDirty = useMemo(
-    () => title !== initialTitle || content !== initialContent,
-    [title, content, initialTitle, initialContent],
+    () =>
+      title !== initialTitle ||
+      content !== initialContent ||
+      captureSource !== initialCaptureSource ||
+      needsReview !== initialNeedsReview,
+    [title, content, captureSource, needsReview, initialTitle, initialContent, initialCaptureSource, initialNeedsReview],
   );
 
   const statusText = statusLabel(saveStatus, isDirty);
 
-  function emitChange(nextTitle: string, nextContent: string) {
-    onChange?.({ title: nextTitle, content: nextContent });
+  function buildValues(overrides: Partial<NoteEditorValues> = {}): NoteEditorValues {
+    return {
+      title: title.trim(),
+      content,
+      captureSource,
+      needsReview,
+      transcriptionConfidence,
+      ...overrides,
+    };
+  }
+
+  function emitChange(overrides: Partial<NoteEditorValues> = {}) {
+    onChange?.(buildValues(overrides));
+  }
+
+  function handleVoiceCapture() {
+    const voiceResult = simulateVoiceCapture(content);
+    const reviewState = applyVoiceCaptureRules({
+      captureSource: voiceResult.captureSource,
+      transcriptionConfidence: voiceResult.transcriptionConfidence,
+    });
+
+    setContent(voiceResult.content);
+    setCaptureSource(voiceResult.captureSource);
+    setTranscriptionConfidence(voiceResult.transcriptionConfidence);
+    setNeedsReview(reviewState.needsReview);
+    emitChange({
+      content: voiceResult.content,
+      captureSource: voiceResult.captureSource,
+      transcriptionConfidence: voiceResult.transcriptionConfidence,
+      needsReview: reviewState.needsReview,
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -70,13 +114,14 @@ export function NoteEditor({
       return;
     }
 
-    if (!title.trim()) {
-      setError("Title is required");
+    const validationError = validateNoteForm(buildValues());
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
     setError(null);
-    await onSave({ title: title.trim(), content });
+    await onSave(buildValues());
   }
 
   return (
@@ -93,6 +138,12 @@ export function NoteEditor({
         ) : null}
       </div>
 
+      {needsReview ? (
+        <p className="note-editor__review-banner" data-testid="needs-review-banner">
+          This voice note needs review before sharing.
+        </p>
+      ) : null}
+
       {error ? <p className="note-editor__error">{error}</p> : null}
 
       <label className="note-editor__field">
@@ -102,7 +153,7 @@ export function NoteEditor({
           value={title}
           onChange={(event) => {
             setTitle(event.target.value);
-            emitChange(event.target.value, content);
+            emitChange({ title: event.target.value });
           }}
           placeholder="Note title"
           aria-invalid={Boolean(error)}
@@ -116,7 +167,7 @@ export function NoteEditor({
             value={content}
             onChange={(event) => {
               setContent(event.target.value);
-              emitChange(title, event.target.value);
+              emitChange({ content: event.target.value });
             }}
             placeholder="Start writing..."
             rows={12}
@@ -130,6 +181,9 @@ export function NoteEditor({
       </div>
 
       <div className="note-editor__actions">
+        <button type="button" onClick={handleVoiceCapture} disabled={saveStatus === "saving"}>
+          Voice capture
+        </button>
         {onCancel ? (
           <button type="button" onClick={onCancel} disabled={saveStatus === "saving"}>
             Cancel
