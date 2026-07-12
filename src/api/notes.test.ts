@@ -14,7 +14,7 @@ import { clearSentEmails } from "../services/email.js";
 const databaseUrl = getTestDatabaseUrl();
 const dbAvailable = await isDatabaseAvailable(databaseUrl);
 
-describe.runIf(dbAvailable)("notes create/read API", () => {
+describe.runIf(dbAvailable)("notes API", () => {
   const pool = createDbPool(databaseUrl);
   const db = drizzle(pool, { schema });
 
@@ -40,7 +40,7 @@ describe.runIf(dbAvailable)("notes create/read API", () => {
     return { app, token: signup.body.accessToken as string };
   }
 
-  it("creates and reads a note", async () => {
+  it("creates, reads, updates, and deletes a note", async () => {
     const { app, token } = await createUser("alice@example.com");
 
     const created = await request(app)
@@ -65,9 +65,32 @@ describe.runIf(dbAvailable)("notes create/read API", () => {
 
     expect(fetched.status).toBe(200);
     expect(fetched.body.title).toBe("First note");
+
+    const updated = await request(app)
+      .patch(`/notes/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ title: "Updated note", content: "Changed" });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({
+      title: "Updated note",
+      content: "Changed",
+    });
+
+    const deleted = await request(app)
+      .delete(`/notes/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(deleted.status).toBe(204);
+
+    const missing = await request(app)
+      .get(`/notes/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(missing.status).toBe(404);
   });
 
-  it("rejects unauthenticated create/read requests", async () => {
+  it("rejects unauthenticated requests", async () => {
     const app = createApp({ db });
 
     expect((await request(app).get("/notes")).status).toBe(401);
@@ -75,9 +98,16 @@ describe.runIf(dbAvailable)("notes create/read API", () => {
     expect((await request(app).get("/notes/00000000-0000-0000-0000-000000000001")).status).toBe(
       401,
     );
+    expect(
+      (await request(app).patch("/notes/00000000-0000-0000-0000-000000000001").send({ title: "x" }))
+        .status,
+    ).toBe(401);
+    expect((await request(app).delete("/notes/00000000-0000-0000-0000-000000000001")).status).toBe(
+      401,
+    );
   });
 
-  it("prevents users from reading another user's note", async () => {
+  it("prevents users from accessing another user's notes", async () => {
     const alice = await createUser("alice@example.com");
     const bob = await createUser("bob@example.com");
 
@@ -89,8 +119,17 @@ describe.runIf(dbAvailable)("notes create/read API", () => {
     const bobRead = await request(bob.app)
       .get(`/notes/${aliceNote.body.id}`)
       .set("Authorization", `Bearer ${bob.token}`);
+    const bobUpdate = await request(bob.app)
+      .patch(`/notes/${aliceNote.body.id}`)
+      .set("Authorization", `Bearer ${bob.token}`)
+      .send({ title: "Hijacked" });
+    const bobDelete = await request(bob.app)
+      .delete(`/notes/${aliceNote.body.id}`)
+      .set("Authorization", `Bearer ${bob.token}`);
 
     expect(bobRead.status).toBe(404);
+    expect(bobUpdate.status).toBe(404);
+    expect(bobDelete.status).toBe(404);
 
     const aliceStillHasNote = await request(alice.app)
       .get(`/notes/${aliceNote.body.id}`)
@@ -99,7 +138,7 @@ describe.runIf(dbAvailable)("notes create/read API", () => {
     expect(aliceStillHasNote.status).toBe(200);
   });
 
-  it("validates create payloads", async () => {
+  it("validates create and update payloads", async () => {
     const { app, token } = await createUser("alice@example.com");
 
     const missingTitle = await request(app)
@@ -108,6 +147,63 @@ describe.runIf(dbAvailable)("notes create/read API", () => {
       .send({ content: "No title" });
 
     expect(missingTitle.status).toBe(400);
+
+    const created = await request(app)
+      .post("/notes")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ title: "Valid" });
+
+    const emptyPatch = await request(app)
+      .patch(`/notes/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+
+    expect(emptyPatch.status).toBe(400);
+  });
+
+  it("rejects stale updates with a conflict response", async () => {
+    const alice = await createUser("alice@example.com");
+    const bobLogin = await request(alice.app)
+      .post("/auth/login")
+      .send({ email: "alice@example.com", password: "Password1" });
+
+    const created = await request(alice.app)
+      .post("/notes")
+      .set("Authorization", `Bearer ${alice.token}`)
+      .send({ title: "Shared note", content: "Version 1" });
+
+    await request(alice.app)
+      .patch(`/notes/${created.body.id}`)
+      .set("Authorization", `Bearer ${alice.token}`)
+      .send({ content: "Version 2 from device A" });
+
+    const conflict = await request(alice.app)
+      .patch(`/notes/${created.body.id}`)
+      .set("Authorization", `Bearer ${bobLogin.body.accessToken}`)
+      .send({
+        content: "Version 2 from device B",
+        expectedUpdatedAt: created.body.updatedAt,
+        deviceId: "phone",
+      });
+
+    expect(conflict.status).toBe(409);
+    expect(conflict.body.error).toMatch(/another device/i);
+    expect(conflict.body.note.content).toBe("Version 2 from device A");
+
+    const versions = await db
+      .select()
+      .from(schema.noteVersions)
+      .where(eq(schema.noteVersions.noteId, created.body.id));
+
+    expect(versions).toHaveLength(1);
+    expect(versions[0].content).toBe("Version 2 from device B");
+
+    const [note] = await db
+      .select()
+      .from(schema.notes)
+      .where(eq(schema.notes.id, created.body.id));
+
+    expect(note.syncConflict).toBe(true);
   });
 
   it("assigns notes to folders owned by the user", async () => {
