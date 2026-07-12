@@ -2,10 +2,10 @@ import jwt from "jsonwebtoken";
 
 import { env } from "../config/env.js";
 
-export interface AccessTokenPayload {
+export type AccessTokenPayload = {
   sub: string;
-  email: string;
-}
+  sessionId: string;
+};
 
 export function signAccessToken(payload: AccessTokenPayload): string {
   return jwt.sign(payload, env.sessionSecret, {
@@ -14,5 +14,14 @@ export function signAccessToken(payload: AccessTokenPayload): string {
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {
-  return jwt.verify(token, env.sessionSecret) as AccessTokenPayload;
+  const decoded = jwt.verify(token, env.sessionSecret);
+
+  if (typeof decoded === "string" || !decoded.sub || !decoded.sessionId) {
+    throw new Error("Invalid access token");
+  }
+
+  return {
+    sub: String(decoded.sub),
+    sessionId: String(decoded.sessionId),
+  };
 }
