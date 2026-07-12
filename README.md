@@ -29,6 +29,19 @@ npm install
 | `npm run db:generate`  | Generate SQL migrations from schema |
 | `npm run db:migrate`   | Apply migrations to the database    |
 
+## Backend API
+
+The Express app is created via `createApp()` in `src/app.ts` with injectable dependencies for testing.
+
+- `src/api/router.ts` — mounts API route modules
+- `src/auth/` — JWT helpers and `requireAuth` middleware
+- `src/services/` — shared service context and `BaseService` for domain logic
+
+```bash
+npm run dev
+curl http://localhost:3000/health
+```
+
 ## Database
 
 The schema is defined in `src/db/schema.ts` using Drizzle ORM. Tables cover users, sessions, folders, notes (with offline sync and voice-capture fields), tags, note shares, and note versions for conflict preservation.
