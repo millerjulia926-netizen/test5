@@ -1,3 +1,6 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 
 import { createApiRouter } from "./api/router.js";
@@ -7,11 +10,32 @@ export interface AppDependencies {
   db: Database;
 }
 
-export function createApp(deps: AppDependencies): Express {
+export interface AppOptions {
+  clientDistPath?: string;
+}
+
+export function createApp(deps: AppDependencies, options: AppOptions = {}): Express {
   const app = express();
 
   app.use(express.json());
   app.use(createApiRouter(deps));
+
+  if (options.clientDistPath) {
+    app.use(express.static(options.clientDistPath, { index: false }));
+
+    app.get(/^(?!\/(auth|notes|health|me)(\/|$)).*/, (req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== "GET") {
+        next();
+        return;
+      }
+
+      res.sendFile(path.join(options.clientDistPath!, "index.html"), (error) => {
+        if (error) {
+          next(error);
+        }
+      });
+    });
+  }
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: "Not found" });
@@ -23,4 +47,9 @@ export function createApp(deps: AppDependencies): Express {
   });
 
   return app;
+}
+
+export function resolveClientDistPath(): string | undefined {
+  const distPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../client/dist");
+  return distPath;
 }
