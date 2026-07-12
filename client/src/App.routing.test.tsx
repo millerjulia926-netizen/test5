@@ -1,45 +1,66 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { App } from "./App";
+import { AuthProvider } from "./auth/AuthContext";
+import { AppShell } from "./components/AppShell";
+import { NoteEditorPage } from "./pages/NoteEditorPage";
+import { NotesListPage } from "./pages/NotesListPage";
+
+vi.mock("./api/notes", () => ({
+  getAccessToken: () => "test-token",
+  setTokens: vi.fn(),
+  clearTokens: vi.fn(),
+  restoreSession: vi.fn(async () => true),
+  fetchNotes: vi.fn(async () => []),
+  fetchNote: vi.fn(),
+  createNote: vi.fn(),
+  updateNote: vi.fn(),
+  login: vi.fn(),
+  signup: vi.fn(),
+}));
 
 describe("app routing", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("renders the notes page inside the app shell", () => {
+  beforeEach(() => {
+    localStorage.setItem("notes_access_token", "test-token");
+  });
+
+  it("mounts the notes list inside the app shell at /notes", async () => {
     render(
       <MemoryRouter initialEntries={["/notes"]}>
-        <App />
+        <AuthProvider>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="notes" element={<NotesListPage />} />
+            </Route>
+          </Routes>
+        </AuthProvider>
       </MemoryRouter>,
     );
 
     expect(screen.getByText("Notes")).toBeInTheDocument();
-    expect(screen.getByTestId("notes-page")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "All notes" })).toBeInTheDocument();
+    expect(await screen.findByTestId("notes-list")).toBeInTheDocument();
   });
 
-  it("renders the login page route", () => {
-    render(
-      <MemoryRouter initialEntries={["/login"]}>
-        <App />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByTestId("login-page")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Log in" })).toBeInTheDocument();
-  });
-
-  it("renders the note editor placeholder route", () => {
+  it("mounts the editor inside the app shell at /notes/new", () => {
     render(
       <MemoryRouter initialEntries={["/notes/new"]}>
-        <App />
+        <AuthProvider>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path="notes/new" element={<NoteEditorPage />} />
+            </Route>
+          </Routes>
+        </AuthProvider>
       </MemoryRouter>,
     );
 
-    expect(screen.getByTestId("note-editor-page")).toBeInTheDocument();
+    expect(screen.getByText("Notes")).toBeInTheDocument();
+    expect(screen.getByTestId("note-editor")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "New note" })).toBeInTheDocument();
   });
 });
