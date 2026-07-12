@@ -4,10 +4,10 @@ import { signAccessToken, verifyAccessToken } from "./jwt.js";
 
 describe("jwt", () => {
   it("signs and verifies access tokens", () => {
-    const token = signAccessToken({ sub: "user-1", email: "alice@example.com" });
+    const token = signAccessToken({ sub: "user-1", sessionId: "session-1" });
     const payload = verifyAccessToken(token);
 
     expect(payload.sub).toBe("user-1");
-    expect(payload.email).toBe("alice@example.com");
+    expect(payload.sessionId).toBe("session-1");
   });
 });

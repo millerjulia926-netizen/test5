@@ -1,27 +1,38 @@
 import type { NextFunction, Request, Response } from "express";
 
 import { verifyAccessToken } from "./jwt.js";
+import { getSessionUserId } from "./service.js";
+import type { Database } from "../db/client.js";
 
-export interface AuthenticatedRequest extends Request {
-  user?: {
-    id: string;
-    email: string;
+export type AuthenticatedRequest = Request & {
+  userId?: string;
+  sessionId?: string;
+};
+
+export function requireSession(db: Database) {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const header = req.headers.authorization;
+
+    if (!header?.startsWith("Bearer ")) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    try {
+      const accessToken = header.slice("Bearer ".length);
+      const payload = verifyAccessToken(accessToken);
+      const userId = await getSessionUserId(db, payload.sessionId);
+
+      if (!userId || userId !== payload.sub) {
+        res.status(401).json({ error: "Session expired" });
+        return;
+      }
+
+      req.userId = userId;
+      req.sessionId = payload.sessionId;
+      next();
+    } catch {
+      res.status(401).json({ error: "Invalid or expired access token" });
+    }
   };
-}
-
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
-  const header = req.headers.authorization;
-
-  if (!header?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Missing or invalid authorization header" });
-    return;
-  }
-
-  try {
-    const payload = verifyAccessToken(header.slice("Bearer ".length));
-    req.user = { id: payload.sub, email: payload.email };
-    next();
-  } catch {
-    res.status(401).json({ error: "Invalid or expired token" });
-  }
 }

@@ -7,6 +7,7 @@ export interface EnvConfig {
   sessionSecret: string;
   accessTokenExpiresMinutes: number;
   refreshTokenExpiresDays: number;
+  sessionTimeoutMinutes: number;
 }
 
 const APP_ENVIRONMENTS: readonly AppEnvironment[] = ["development", "staging", "production"];
@@ -34,6 +35,7 @@ const defaults: Record<AppEnvironment, Omit<EnvConfig, "nodeEnv">> = {
     sessionSecret: "dev-secret-change-me",
     accessTokenExpiresMinutes: 15,
     refreshTokenExpiresDays: 7,
+    sessionTimeoutMinutes: 30,
   },
   staging: {
     port: 3000,
@@ -41,6 +43,7 @@ const defaults: Record<AppEnvironment, Omit<EnvConfig, "nodeEnv">> = {
     sessionSecret: "staging-secret-change-me",
     accessTokenExpiresMinutes: 15,
     refreshTokenExpiresDays: 7,
+    sessionTimeoutMinutes: 30,
   },
   production: {
     port: 3000,
@@ -48,6 +51,7 @@ const defaults: Record<AppEnvironment, Omit<EnvConfig, "nodeEnv">> = {
     sessionSecret: "",
     accessTokenExpiresMinutes: 15,
     refreshTokenExpiresDays: 7,
+    sessionTimeoutMinutes: 30,
   },
 };
 
@@ -67,6 +71,9 @@ export function loadEnv(overrideNodeEnv?: AppEnvironment): EnvConfig {
       refreshTokenExpiresDays: Number(
         process.env.REFRESH_TOKEN_EXPIRES_DAYS ?? base.refreshTokenExpiresDays,
       ),
+      sessionTimeoutMinutes: Number(
+        process.env.SESSION_TIMEOUT_MINUTES ?? base.sessionTimeoutMinutes,
+      ),
     };
   }
 
@@ -80,6 +87,9 @@ export function loadEnv(overrideNodeEnv?: AppEnvironment): EnvConfig {
     ),
     refreshTokenExpiresDays: Number(
       process.env.REFRESH_TOKEN_EXPIRES_DAYS ?? base.refreshTokenExpiresDays,
+    ),
+    sessionTimeoutMinutes: Number(
+      process.env.SESSION_TIMEOUT_MINUTES ?? base.sessionTimeoutMinutes,
     ),
   };
 }
