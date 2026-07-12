@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { deleteNote, fetchNote, updateNote } from "../api/notes";
+import { AuthError, deleteNote, fetchNote, SyncConflictError, updateNote } from "../api/notes";
 import { useAuth } from "../auth/AuthContext";
 import { ErrorState } from "../components/ErrorState";
 import { LoadingState } from "../components/LoadingState";
@@ -14,20 +14,27 @@ function formatDate(value: string): string {
 export function NoteDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isRestoring, logout } = useAuth();
   const [note, setNote] = useState<Awaited<ReturnType<typeof fetchNote>> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [conflictMessage, setConflictMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isRestoring && !isAuthenticated) {
       navigate("/login");
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, isRestoring, navigate]);
 
   useEffect(() => {
     if (!isAuthenticated || !id) {
+      return;
+    }
+
+    if (id.startsWith("local:")) {
+      setError("This note is saved offline and will appear after sync.");
+      setIsLoading(false);
       return;
     }
 
@@ -45,6 +52,11 @@ export function NoteDetailPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          if (loadError instanceof AuthError) {
+            await logout();
+            navigate("/login");
+            return;
+          }
           setError(loadError instanceof Error ? loadError.message : "Failed to load note");
         }
       } finally {
@@ -59,24 +71,48 @@ export function NoteDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, isAuthenticated]);
+  }, [id, isAuthenticated, logout, navigate]);
 
-  async function handlePinToggle() {
+  async function mutateNote(input: Parameters<typeof updateNote>[1]) {
     if (!note) {
       return;
     }
 
     setIsUpdating(true);
     setError(null);
+    setConflictMessage(null);
 
     try {
-      const updated = await updateNote(note.id, { isPinned: !note.isPinned });
+      const updated = await updateNote(note.id, {
+        ...input,
+        expectedUpdatedAt: note.updatedAt,
+      });
       setNote(updated);
     } catch (updateError) {
+      if (updateError instanceof SyncConflictError) {
+        setNote(updateError.note);
+        setConflictMessage("This note was updated on another device.");
+        return;
+      }
+
+      if (updateError instanceof AuthError) {
+        await logout();
+        navigate("/login");
+        return;
+      }
+
       setError(updateError instanceof Error ? updateError.message : "Failed to update note");
     } finally {
       setIsUpdating(false);
     }
+  }
+
+  async function handlePinToggle() {
+    if (!note) {
+      return;
+    }
+
+    await mutateNote({ isPinned: !note.isPinned });
   }
 
   async function handleArchiveToggle() {
@@ -84,18 +120,24 @@ export function NoteDetailPage() {
       return;
     }
 
+    if (note.archivedAt) {
+      await mutateNote({ archived: false });
+      return;
+    }
+
     setIsUpdating(true);
     setError(null);
 
     try {
-      if (note.archivedAt) {
-        const updated = await updateNote(note.id, { archived: false });
-        setNote(updated);
-      } else {
-        await updateNote(note.id, { archived: true });
-        navigate("/notes");
-      }
+      await updateNote(note.id, { archived: true, expectedUpdatedAt: note.updatedAt });
+      navigate("/notes");
     } catch (updateError) {
+      if (updateError instanceof SyncConflictError) {
+        setNote(updateError.note);
+        setConflictMessage("This note was updated on another device.");
+        return;
+      }
+
       setError(updateError instanceof Error ? updateError.message : "Failed to update note");
     } finally {
       setIsUpdating(false);
@@ -114,6 +156,12 @@ export function NoteDetailPage() {
       await deleteNote(note.id);
       navigate("/notes");
     } catch (deleteError) {
+      if (deleteError instanceof AuthError) {
+        await logout();
+        navigate("/login");
+        return;
+      }
+
       setError(deleteError instanceof Error ? deleteError.message : "Failed to delete note");
     } finally {
       setIsUpdating(false);
@@ -157,8 +205,10 @@ export function NoteDetailPage() {
           </button>
         </div>
       </div>
+      {conflictMessage ? <p className="note-detail__conflict">{conflictMessage}</p> : null}
       <h1>
         {note.isPinned ? <span className="notes-list__pin">Pinned</span> : null}
+        {note.pendingSync ? <span className="notes-list__pending">Pending sync</span> : null}
         {note.syncConflict ? <span className="notes-list__conflict">Conflict</span> : null}
         {note.needsReview ? <span className="notes-list__review">Needs review</span> : null}
         {note.title}

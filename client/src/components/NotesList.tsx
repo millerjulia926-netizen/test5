@@ -118,6 +118,7 @@ export function NotesList({
               <span className="notes-list__title">
                 {note.isPinned ? <span className="notes-list__pin">Pinned</span> : null}
                 {note.syncConflict ? <span className="notes-list__conflict">Conflict</span> : null}
+                {note.pendingSync ? <span className="notes-list__pending">Pending sync</span> : null}
                 {note.needsReview ? <span className="notes-list__review">Review</span> : null}
                 {note.title}
               </span>

@@ -13,7 +13,11 @@ vi.mock("../api/notes", () => ({
 }));
 
 vi.mock("../auth/AuthContext", () => ({
-  useAuth: () => ({ isAuthenticated: true }),
+  useAuth: () => ({
+    isAuthenticated: true,
+    isRestoring: false,
+    logout: vi.fn(),
+  }),
 }));
 
 import { fetchNote } from "../api/notes";

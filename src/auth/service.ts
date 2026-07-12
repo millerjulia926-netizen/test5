@@ -91,6 +91,47 @@ export async function logout(db: Database, sessionId: string): Promise<void> {
   await db.delete(sessions).where(eq(sessions.id, sessionId));
 }
 
+export async function refreshSession(
+  db: Database,
+  refreshToken: string,
+): Promise<{ tokens: AuthTokens } | { error: string }> {
+  const refreshTokenHash = hashToken(refreshToken);
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.refreshTokenHash, refreshTokenHash));
+
+  if (!session || session.expiresAt < new Date()) {
+    return { error: "Session expired" };
+  }
+
+  const idleDeadline = new Date(session.lastActivityAt);
+  idleDeadline.setMinutes(idleDeadline.getMinutes() + env.sessionTimeoutMinutes);
+
+  if (idleDeadline < new Date()) {
+    await db.delete(sessions).where(eq(sessions.id, session.id));
+    return { error: "Session expired due to inactivity" };
+  }
+
+  const newRefreshToken = createRefreshToken();
+  const [updatedSession] = await db
+    .update(sessions)
+    .set({
+      refreshTokenHash: hashToken(newRefreshToken),
+      lastActivityAt: new Date(),
+      expiresAt: refreshExpiryDate(),
+    })
+    .where(eq(sessions.id, session.id))
+    .returning();
+
+  return {
+    tokens: {
+      accessToken: signAccessToken({ sub: session.userId, sessionId: updatedSession.id }),
+      refreshToken: newRefreshToken,
+    },
+  };
+}
+
 export async function getSessionUserId(db: Database, sessionId: string): Promise<string | null> {
   const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId));
 

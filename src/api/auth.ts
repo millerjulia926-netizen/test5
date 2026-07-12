@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-import { login, logout, signup } from "../auth/service.js";
+import { login, logout, refreshSession, signup } from "../auth/service.js";
 import type { Database } from "../db/client.js";
 
 export function createAuthRouter(db: Database) {
@@ -34,6 +34,24 @@ export function createAuthRouter(db: Database) {
     }
 
     const result = await login(db, { email, password });
+
+    if ("error" in result) {
+      res.status(401).json({ error: result.error });
+      return;
+    }
+
+    res.json(result.tokens);
+  });
+
+  router.post("/refresh", async (req, res) => {
+    const { refreshToken } = req.body ?? {};
+
+    if (!refreshToken) {
+      res.status(400).json({ error: "Refresh token is required" });
+      return;
+    }
+
+    const result = await refreshSession(db, refreshToken);
 
     if ("error" in result) {
       res.status(401).json({ error: result.error });

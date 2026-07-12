@@ -110,4 +110,21 @@ describe("NotesList", () => {
 
     expect(onSearchChange).toHaveBeenCalled();
   });
+
+  it("renders pending sync badge", () => {
+    render(
+      <MemoryRouter>
+        <NotesList
+          notes={[
+            {
+              ...sampleNotes[0],
+              pendingSync: true,
+            },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Pending sync")).toBeInTheDocument();
+  });
 });
