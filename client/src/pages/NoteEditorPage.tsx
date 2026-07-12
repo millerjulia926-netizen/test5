@@ -180,7 +180,7 @@ export function NoteEditorPage() {
     <>
       {offlineMessage ? <p className="note-editor__offline-banner">{offlineMessage}</p> : null}
       <NoteEditor
-        key={`${mode}-${id ?? "new"}-${initialValues.title}-${saveStatus}`}
+        key={`${mode}-${id ?? "new"}`}
         mode={mode}
         initialTitle={initialValues.title}
         initialContent={initialValues.content}
