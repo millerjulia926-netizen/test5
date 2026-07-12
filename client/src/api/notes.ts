@@ -136,6 +136,9 @@ export async function updateNote(
     archived?: boolean;
     expectedUpdatedAt?: string;
     needsReview?: boolean;
+    captureSource?: "typed" | "voice";
+    transcriptionConfidence?: number;
+    pendingSync?: boolean;
   },
 ): Promise<Note> {
   return apiFetch<Note>(`/notes/${id}`, {

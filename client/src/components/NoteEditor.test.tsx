@@ -55,6 +55,9 @@ describe("NoteEditor", () => {
     expect(onSave).toHaveBeenCalledWith({
       title: "Draft title",
       content: "",
+      captureSource: "typed",
+      needsReview: false,
+      transcriptionConfidence: null,
     });
   });
 
@@ -66,5 +69,17 @@ describe("NoteEditor", () => {
     await user.type(screen.getByPlaceholderText("Start writing..."), "# Heading");
 
     expect(screen.getByRole("heading", { level: 1, name: "Heading" })).toBeInTheDocument();
+  });
+
+  it("supports voice capture and shows review banner", async () => {
+    const user = userEvent.setup();
+
+    render(<NoteEditor mode="create" onSave={vi.fn()} />);
+
+    await user.type(screen.getByPlaceholderText("Note title"), "Voice note");
+    await user.click(screen.getByRole("button", { name: "Voice capture" }));
+
+    expect(screen.getByTestId("needs-review-banner")).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/Transcribed voice note/)).toBeInTheDocument();
   });
 });

@@ -11,6 +11,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ErrorState } from "../components/ErrorState";
 import { LoadingState } from "../components/LoadingState";
 import { NoteEditor, type NoteEditorValues, type SaveStatus } from "../components/NoteEditor";
+import { createOfflineDraft } from "../lib/validation";
 
 export function NoteEditorPage() {
   const { id } = useParams();
@@ -26,6 +27,8 @@ export function NoteEditorPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string | null>(null);
+  const [captureSource, setCaptureSource] = useState<"typed" | "voice">("typed");
+  const [needsReview, setNeedsReview] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -52,6 +55,8 @@ export function NoteEditorPage() {
         }
 
         setInitialValues({ title: note.title, content: note.content });
+        setCaptureSource(note.captureSource === "voice" ? "voice" : "typed");
+        setNeedsReview(note.needsReview);
         setServerUpdatedAt(note.updatedAt);
         setSaveStatus("saved");
       } catch (error) {
@@ -75,20 +80,34 @@ export function NoteEditorPage() {
   async function handleSave(values: NoteEditorValues) {
     setSaveStatus("saving");
 
+    const payload =
+      mode === "create" && !navigator.onLine
+        ? createOfflineDraft(values)
+        : values;
+
     try {
       const savedNote =
         mode === "edit" && id
           ? await updateNote(id, {
-              title: values.title,
-              content: values.content,
+              title: payload.title,
+              content: payload.content,
               expectedUpdatedAt: serverUpdatedAt ?? undefined,
+              captureSource: payload.captureSource,
+              needsReview: payload.needsReview,
+              transcriptionConfidence: payload.transcriptionConfidence ?? undefined,
             })
           : await createNote({
-              title: values.title,
-              content: values.content,
+              title: payload.title,
+              content: payload.content,
+              captureSource: payload.captureSource,
+              needsReview: payload.needsReview,
+              transcriptionConfidence: payload.transcriptionConfidence ?? undefined,
+              pendingSync: payload.pendingSync,
             });
 
       setInitialValues({ title: savedNote.title, content: savedNote.content });
+      setCaptureSource(savedNote.captureSource === "voice" ? "voice" : "typed");
+      setNeedsReview(savedNote.needsReview);
       setServerUpdatedAt(savedNote.updatedAt);
       setSaveStatus("saved");
 
@@ -121,6 +140,8 @@ export function NoteEditorPage() {
       mode={mode}
       initialTitle={initialValues.title}
       initialContent={initialValues.content}
+      initialCaptureSource={captureSource}
+      initialNeedsReview={needsReview}
       saveStatus={saveStatus}
       onChange={() => setSaveStatus("dirty")}
       onSave={handleSave}

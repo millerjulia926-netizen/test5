@@ -269,4 +269,91 @@ describe.runIf(dbAvailable)("notes API", () => {
     expect(created.body.needsReview).toBe(true);
     expect(created.body.transcriptionConfidence).toBeCloseTo(0.42);
   });
+
+  it("auto-flags low-confidence voice notes for review", async () => {
+    const { app, token } = await createUser("alice@example.com");
+
+    const created = await request(app)
+      .post("/notes")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        title: "Voice memo",
+        content: "Uncertain transcription",
+        captureSource: "voice",
+        transcriptionConfidence: 0.42,
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.needsReview).toBe(true);
+  });
+
+  it("rejects invalid validation payloads", async () => {
+    const { app, token } = await createUser("alice@example.com");
+
+    const invalidConfidence = await request(app)
+      .post("/notes")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        title: "Bad confidence",
+        transcriptionConfidence: 1.5,
+      });
+
+    expect(invalidConfidence.status).toBe(400);
+    expect(invalidConfidence.body.error).toMatch(/between 0 and 1/);
+
+    const invalidCapture = await request(app)
+      .post("/notes")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        title: "Bad source",
+        captureSource: "audio",
+      });
+
+    expect(invalidCapture.status).toBe(400);
+  });
+
+  it("clears pendingSync after a successful update", async () => {
+    const { app, token } = await createUser("alice@example.com");
+
+    const created = await request(app)
+      .post("/notes")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        title: "Offline draft",
+        content: "Pending",
+        pendingSync: true,
+      });
+
+    const synced = await request(app)
+      .patch(`/notes/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ title: "Synced draft" });
+
+    expect(synced.status).toBe(200);
+    expect(synced.body.pendingSync).toBe(false);
+  });
+
+  it("rejects pinning archived notes", async () => {
+    const { app, token } = await createUser("alice@example.com");
+
+    const created = await request(app)
+      .post("/notes")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ title: "Archive me", content: "Soon" });
+
+    const archived = await request(app)
+      .patch(`/notes/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ archived: true });
+
+    expect(archived.status).toBe(200);
+
+    const pinAttempt = await request(app)
+      .patch(`/notes/${created.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ isPinned: true });
+
+    expect(pinAttempt.status).toBe(400);
+    expect(pinAttempt.body.error).toMatch(/cannot be pinned/);
+  });
 });
