@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 
 import {
   clearTokens,
-  getAccessToken,
   login as apiLogin,
+  logoutFromServer,
   restoreSession,
   setTokens,
   signup as apiSignup,
@@ -11,27 +11,32 @@ import {
 
 type AuthContextValue = {
   isAuthenticated: boolean;
+  isRestoring: boolean;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(Boolean(getAccessToken()));
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(true);
 
   useEffect(() => {
-    void restoreSession().then((restored) => {
-      if (restored) {
-        setIsAuthenticated(true);
-      }
-    });
+    void restoreSession()
+      .then((restored) => {
+        setIsAuthenticated(restored);
+      })
+      .finally(() => {
+        setIsRestoring(false);
+      });
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       isAuthenticated,
+      isRestoring,
       async login(email, password) {
         const tokens = await apiLogin(email, password);
         setTokens(tokens);
@@ -42,12 +47,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTokens(tokens);
         setIsAuthenticated(true);
       },
-      logout() {
+      async logout() {
+        await logoutFromServer();
         clearTokens();
         setIsAuthenticated(false);
       },
     }),
-    [isAuthenticated],
+    [isAuthenticated, isRestoring],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,64 +1,85 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { fetchNotes } from "../api/notes";
+import { AuthError, fetchNotes } from "../api/notes";
 import { useAuth } from "../auth/AuthContext";
+import { useOnlineSync } from "../hooks/useOnlineSync";
+import { useSyncOnFocus } from "../hooks/useSyncOnFocus";
 import { ErrorState } from "../components/ErrorState";
 import { LoadingState } from "../components/LoadingState";
 import { NotesList } from "../components/NotesList";
+import { getPendingCreates, mergeNotesWithPending } from "../lib/offlineQueue";
+import { syncPendingNotes } from "../lib/sync";
 
 type NotesListPageProps = {
   archived?: boolean;
 };
 
 export function NotesListPage({ archived = false }: NotesListPageProps) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isRestoring, logout } = useAuth();
   const navigate = useNavigate();
   const [notes, setNotes] = useState<Awaited<ReturnType<typeof fetchNotes>>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isRestoring && !isAuthenticated) {
       navigate("/login");
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, isRestoring, navigate]);
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      return;
-    }
+  const loadNotes = useCallback(
+    async (background = false) => {
+      if (!isAuthenticated) {
+        return;
+      }
 
-    let cancelled = false;
-
-    async function loadNotes() {
-      setIsLoading(true);
+      if (!background) {
+        setIsLoading(true);
+      }
       setError(null);
 
       try {
+        if (!archived) {
+          setIsSyncing(true);
+          await syncPendingNotes();
+        }
+
         const data = await fetchNotes({ archived });
-        if (!cancelled) {
-          setNotes(data);
-        }
+        const merged = archived ? data : mergeNotesWithPending(data, getPendingCreates());
+        setNotes(merged);
       } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load notes");
+        if (loadError instanceof AuthError) {
+          await logout();
+          navigate("/login");
+          return;
         }
+
+        setError(loadError instanceof Error ? loadError.message : "Failed to load notes");
       } finally {
-        if (!cancelled) {
+        setIsSyncing(false);
+        if (!background) {
           setIsLoading(false);
         }
       }
-    }
+    },
+    [archived, isAuthenticated, logout, navigate],
+  );
 
+  useEffect(() => {
     void loadNotes();
+  }, [loadNotes, reloadKey]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [archived, isAuthenticated, reloadKey]);
+  useOnlineSync(() => {
+    void loadNotes(true);
+  }, isAuthenticated && !archived);
+
+  useSyncOnFocus(() => {
+    void loadNotes(true);
+  }, isAuthenticated);
 
   if (isLoading) {
     return <LoadingState message={archived ? "Loading archived notes..." : "Loading notes..."} />;
@@ -75,12 +96,15 @@ export function NotesListPage({ archived = false }: NotesListPageProps) {
   }
 
   return (
-    <NotesList
-      notes={notes}
-      searchQuery={searchQuery}
-      archived={archived}
-      onSearchChange={setSearchQuery}
-      onClearFilters={() => setSearchQuery("")}
-    />
+    <>
+      {isSyncing ? <p className="notes-list__sync-status">Syncing pending notes...</p> : null}
+      <NotesList
+        notes={notes}
+        searchQuery={searchQuery}
+        archived={archived}
+        onSearchChange={setSearchQuery}
+        onClearFilters={() => setSearchQuery("")}
+      />
+    </>
   );
 }

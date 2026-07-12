@@ -30,8 +30,19 @@ export class SyncConflictError extends Error {
   }
 }
 
+export class AuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
 const TOKEN_KEY = "notes_access_token";
 const REFRESH_KEY = "notes_refresh_token";
+
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_KEY);
+}
 
 export function getAccessToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -47,7 +58,43 @@ export function clearTokens(): void {
   localStorage.removeItem(REFRESH_KEY);
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+function getSessionIdFromAccessToken(): string | null {
+  const token = getAccessToken();
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1] ?? "")) as { sessionId?: string };
+    return payload.sessionId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshAccessToken(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    return false;
+  }
+
+  const response = await fetch("/auth/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken }),
+  });
+
+  if (!response.ok) {
+    clearTokens();
+    return false;
+  }
+
+  const tokens = (await response.json()) as AuthTokens;
+  setTokens(tokens);
+  return true;
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
   const token = getAccessToken();
   const headers = new Headers(init.headers);
 
@@ -60,6 +107,14 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
 
   const response = await fetch(path, { ...init, headers });
+
+  if (response.status === 401 && !retried) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      return apiFetch<T>(path, init, true);
+    }
+    throw new AuthError("Session expired");
+  }
 
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {
@@ -82,7 +137,19 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 }
 
 export async function restoreSession(): Promise<boolean> {
-  return Boolean(getAccessToken());
+  if (getAccessToken()) {
+    try {
+      await apiFetch<{ userId: string }>("/me");
+      return true;
+    } catch (error) {
+      if (error instanceof AuthError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  return refreshAccessToken();
 }
 
 export async function login(email: string, password: string): Promise<AuthTokens> {
@@ -97,6 +164,22 @@ export async function signup(email: string, password: string): Promise<AuthToken
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+}
+
+export async function logoutFromServer(): Promise<void> {
+  const sessionId = getSessionIdFromAccessToken();
+  if (!sessionId) {
+    return;
+  }
+
+  try {
+    await apiFetch<void>("/auth/logout", {
+      method: "POST",
+      body: JSON.stringify({ sessionId }),
+    });
+  } catch {
+    // Local logout still proceeds if the server call fails.
+  }
 }
 
 export async function fetchNotes(filters?: { archived?: boolean }): Promise<Note[]> {

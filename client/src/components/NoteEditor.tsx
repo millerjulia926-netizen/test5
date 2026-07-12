@@ -9,7 +9,7 @@ import {
 import { MarkdownContent } from "./MarkdownContent";
 
 export type NoteEditorMode = "create" | "edit";
-export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error" | "conflict";
+export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error" | "conflict" | "offline";
 
 export type NoteEditorValues = NoteFormValues;
 
@@ -20,8 +20,11 @@ export type NoteEditorProps = {
   initialCaptureSource?: "typed" | "voice";
   initialNeedsReview?: boolean;
   saveStatus?: SaveStatus;
+  conflictNote?: { title: string; content: string } | null;
   onChange?: (values: NoteEditorValues) => void;
   onSave?: (values: NoteEditorValues) => void | Promise<void>;
+  onForceSave?: (values: NoteEditorValues) => void | Promise<void>;
+  onAcceptServerVersion?: () => void;
   onCancel?: () => void;
 };
 
@@ -38,6 +41,9 @@ function statusLabel(status: SaveStatus, isDirty: boolean): string | null {
   if (status === "conflict") {
     return "Updated on another device";
   }
+  if (status === "offline") {
+    return "Saved offline";
+  }
   if (isDirty) {
     return "Unsaved changes";
   }
@@ -51,8 +57,11 @@ export function NoteEditor({
   initialCaptureSource = "typed",
   initialNeedsReview = false,
   saveStatus = "idle",
+  conflictNote = null,
   onChange,
   onSave,
+  onForceSave,
+  onAcceptServerVersion,
   onCancel,
 }: NoteEditorProps) {
   const [title, setTitle] = useState(initialTitle);
@@ -145,6 +154,26 @@ export function NoteEditor({
       ) : null}
 
       {error ? <p className="note-editor__error">{error}</p> : null}
+
+      {saveStatus === "conflict" && conflictNote ? (
+        <div className="note-editor__conflict" data-testid="conflict-resolution">
+          <p>
+            Server version: <strong>{conflictNote.title}</strong>
+          </p>
+          <div className="note-editor__conflict-actions">
+            {onAcceptServerVersion ? (
+              <button type="button" onClick={onAcceptServerVersion}>
+                Use server version
+              </button>
+            ) : null}
+            {onForceSave ? (
+              <button type="button" onClick={() => void onForceSave(buildValues())}>
+                Save my version
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <label className="note-editor__field">
         Title
