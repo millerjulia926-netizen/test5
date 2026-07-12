@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { Router } from "express";
 
 import { type AuthenticatedRequest, requireSession } from "../auth/middleware.js";
@@ -40,10 +40,19 @@ export function createNotesRouter(db: Database) {
   router.use(requireSession(db));
 
   router.get("/", async (req: AuthenticatedRequest, res) => {
+    const showArchived = req.query.archived === "true";
+    const conditions = [eq(notes.userId, req.userId!)];
+
+    if (showArchived) {
+      conditions.push(isNotNull(notes.archivedAt));
+    } else {
+      conditions.push(isNull(notes.archivedAt));
+    }
+
     const userNotes = await db
       .select()
       .from(notes)
-      .where(and(eq(notes.userId, req.userId!), isNull(notes.archivedAt)))
+      .where(and(...conditions))
       .orderBy(desc(notes.updatedAt));
 
     res.json(userNotes);
