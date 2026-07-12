@@ -18,7 +18,7 @@ import { enqueueCreate } from "../lib/offlineQueue";
 export function NoteEditorPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated, isRestoring, logout } = useAuth();
+  const { logout } = useAuth();
   const mode = id ? "edit" : "create";
 
   const [initialValues, setInitialValues] = useState<NoteEditorValues>({
@@ -35,13 +35,7 @@ export function NoteEditorPage() {
   const [offlineMessage, setOfflineMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isRestoring && !isAuthenticated) {
-      navigate("/login");
-    }
-  }, [isAuthenticated, isRestoring, navigate]);
-
-  useEffect(() => {
-    if (mode === "create" || !id || !isAuthenticated) {
+    if (mode === "create" || !id) {
       return;
     }
 
@@ -90,7 +84,7 @@ export function NoteEditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, isAuthenticated, logout, mode, navigate]);
+  }, [id, logout, mode, navigate]);
 
   async function handleSave(values: NoteEditorValues, options?: { force?: boolean }) {
     setSaveStatus("saving");

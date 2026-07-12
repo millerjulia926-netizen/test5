@@ -1,66 +1,55 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuthProvider } from "./auth/AuthContext";
-import { AppShell } from "./components/AppShell";
-import { NoteEditorPage } from "./pages/NoteEditorPage";
-import { NotesListPage } from "./pages/NotesListPage";
+import { App } from "./App";
 
 vi.mock("./api/notes", () => ({
-  getAccessToken: () => "test-token",
+  getAccessToken: vi.fn(() => null),
+  getRefreshToken: vi.fn(() => null),
   setTokens: vi.fn(),
   clearTokens: vi.fn(),
-  restoreSession: vi.fn(async () => true),
+  restoreSession: vi.fn(async () => false),
   fetchNotes: vi.fn(async () => []),
   fetchNote: vi.fn(),
   createNote: vi.fn(),
   updateNote: vi.fn(),
   login: vi.fn(),
   signup: vi.fn(),
+  logoutFromServer: vi.fn(),
 }));
 
 describe("app routing", () => {
   afterEach(() => {
     cleanup();
+    vi.clearAllMocks();
   });
 
   beforeEach(() => {
-    localStorage.setItem("notes_access_token", "test-token");
+    localStorage.clear();
   });
 
-  it("mounts the notes list inside the app shell at /notes", async () => {
+  it("redirects unauthenticated users from protected routes to login", async () => {
     render(
       <MemoryRouter initialEntries={["/notes"]}>
-        <AuthProvider>
-          <Routes>
-            <Route element={<AppShell />}>
-              <Route path="notes" element={<NotesListPage />} />
-            </Route>
-          </Routes>
-        </AuthProvider>
+        <App />
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Notes")).toBeInTheDocument();
-    expect(await screen.findByTestId("notes-list")).toBeInTheDocument();
+    expect(await screen.findByTestId("login-page")).toBeInTheDocument();
   });
 
-  it("mounts the editor inside the app shell at /notes/new", () => {
+  it("mounts the notes list for authenticated users", async () => {
+    const notesApi = await import("./api/notes");
+    vi.mocked(notesApi.getAccessToken).mockReturnValue("test-token");
+    vi.mocked(notesApi.restoreSession).mockResolvedValue(true);
+
     render(
-      <MemoryRouter initialEntries={["/notes/new"]}>
-        <AuthProvider>
-          <Routes>
-            <Route element={<AppShell />}>
-              <Route path="notes/new" element={<NoteEditorPage />} />
-            </Route>
-          </Routes>
-        </AuthProvider>
+      <MemoryRouter initialEntries={["/notes"]}>
+        <App />
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Notes")).toBeInTheDocument();
-    expect(screen.getByTestId("note-editor")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "New note" })).toBeInTheDocument();
+    expect(await screen.findByTestId("notes-list")).toBeInTheDocument();
   });
 });

@@ -16,7 +16,7 @@ type NotesListPageProps = {
 };
 
 export function NotesListPage({ archived = false }: NotesListPageProps) {
-  const { isAuthenticated, isRestoring, logout } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
   const [notes, setNotes] = useState<Awaited<ReturnType<typeof fetchNotes>>>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -24,12 +24,6 @@ export function NotesListPage({ archived = false }: NotesListPageProps) {
   const [reloadKey, setReloadKey] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
-
-  useEffect(() => {
-    if (!isRestoring && !isAuthenticated) {
-      navigate("/login");
-    }
-  }, [isAuthenticated, isRestoring, navigate]);
 
   const loadNotes = useCallback(
     async (background = false) => {

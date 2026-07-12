@@ -149,3 +149,10 @@ export async function getSessionUserId(db: Database, sessionId: string): Promise
 
   return session.userId;
 }
+
+export async function touchSession(db: Database, sessionId: string): Promise<void> {
+  await db
+    .update(sessions)
+    .set({ lastActivityAt: new Date() })
+    .where(eq(sessions.id, sessionId));
+}
